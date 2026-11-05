@@ -69,6 +69,9 @@ def numero_br(serie: pd.Series) -> pd.Series:
 
 
 def adaptar_exportacao_original(bruto: pd.DataFrame) -> pd.DataFrame:
+    # Remove linhas totalmente vazias antes de processar
+    bruto = bruto.dropna(how="all")
+    
     df = pd.DataFrame(index=bruto.index)
     df["ID"] = [f"L{i:04d}" for i in range(1, len(bruto) + 1)]
     df["N° do Pedido"] = bruto.get("N.º de venda", bruto.get("N° do Pedido", pd.Series(index=bruto.index, dtype="string")))
@@ -128,26 +131,21 @@ def ler_csv(conteudo: bytes) -> pd.DataFrame:
 
 
 def preparar(bruto: pd.DataFrame) -> pd.DataFrame:
-    df = bruto.copy()
+    df = bruto.dropna(subset=["N° do Pedido"]).copy()
+    
     for col in NUMERICAS:
         if col in df.columns:
             df[col] = numero_br(df[col])
     
-    # Tratamento robusto de datas (aceita formato string com hora ou datetime do Excel)
     if "Data" in df.columns:
         if pd.api.types.is_datetime64_any_dtype(df["Data"]):
             datas = df["Data"]
         else:
             texto = df["Data"].astype("string").str.strip()
-            # Tenta converter com hora e dia primeiro
-            datas = pd.to_datetime(texto, format="%d/%m/%Y %H:%M:%S", errors="coerce")
-            resto = datas.isna() & texto.notna()
-            if resto.any():
-                datas = datas.where(~resto, pd.to_datetime(texto, format="%d/%m/%Y", errors="coerce"))
-            resto2 = datas.isna() & texto.notna()
-            if resto2.any():
-                datas = datas.where(~resto2, pd.to_datetime(texto, dayfirst=True, errors="coerce"))
+            datas = pd.to_datetime(texto, dayfirst=True, errors="coerce")
         df["Data"] = datas
+
+    df = df.dropna(subset=["Data"])
 
     for col in df.columns:
         if col not in NUMERICAS and col != "Data":
@@ -159,7 +157,7 @@ def preparar(bruto: pd.DataFrame) -> pd.DataFrame:
     df["Custo informado"] = df["Preço de Custo"].fillna(0) > 0
     df["Custo total estimado"] = df["Preço de Custo"].fillna(0) * df["Quantidade"].fillna(0)
     df["Margem bruta estimada"] = df["Preço Total"].fillna(0) - df["Custo total estimado"]
-    df["Linha idêntica"] = bruto.duplicated(keep="first").to_numpy() if not bruto.empty else False
+    df["Linha idêntica"] = df.duplicated(keep="first").to_numpy() if not df.empty else False
     df["Cancelado"] = df["Situação"].fillna("").str.casefold().eq("cancelado")
     return df
 
@@ -238,7 +236,7 @@ def taxa_cancelamento(df: pd.DataFrame, por: Optional[str] = None):
         return float(po["cancelado"].mean()) if len(po) else np.nan
     saida = po.groupby("grupo", as_index=False).agg(Pedidos=("cancelado", "size"), Cancelados=("cancelado", "sum"))
     saida["Taxa de cancelamento"] = saida["Cancelados"] / saida["Pedidos"]
-    return saaid if 'saaid' in locals() else saida.rename(columns={"grupo": por})
+    return saida.rename(columns={"grupo": por})
 
 
 def serie_diaria(df: pd.DataFrame) -> pd.DataFrame:
