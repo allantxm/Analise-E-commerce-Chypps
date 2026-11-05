@@ -130,14 +130,24 @@ except Exception as erro:
 st.sidebar.divider()
 st.sidebar.subheader("Filtros")
 datas_validas = df["Data"].dropna()
-data_min, data_max = datas_validas.min().date(), datas_validas.max().date()
 
-selecao = st.sidebar.date_input(
-    "Período", 
-    value=(data_min, data_max), 
-    min_value=data_min, 
-    max_value=data_max
-)
+if not datas_validas.empty:
+    data_min = datas_validas.min().date()
+    data_max = datas_validas.max().date()
+    if data_min > data_max:
+        data_min, data_max = data_max, data_min
+
+    val_inicial = data_min if data_min == data_max else (data_min, data_max)
+
+    selecao = st.sidebar.date_input(
+        "Período",
+        value=val_inicial,
+        min_value=data_min,
+        max_value=data_max
+    )
+else:
+    st.sidebar.warning("Nenhuma data válida encontrada.")
+    st.stop()
 
 if isinstance(selecao, tuple):
     if len(selecao) == 2:
