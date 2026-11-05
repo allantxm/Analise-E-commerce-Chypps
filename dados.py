@@ -1,8 +1,4 @@
-"""Camada de dados do dashboard Chypps Tecnologia.
-
-Tudo aqui é pandas puro (sem Streamlit). A base Excel é apenas LIDA:
-nenhuma função grava, sobrescreve ou altera o arquivo de origem.
-"""
+"""Camada de dados do dashboard Chypps Tecnologia."""
 from __future__ import annotations
 
 import io
@@ -92,7 +88,6 @@ def adaptar_exportacao_original(bruto: pd.DataFrame) -> pd.DataFrame:
     df["Valor unitário"] = bruto.get("Preço unitário de venda do anúncio (BRL)", bruto.get("Valor unitário"))
     df["Preço de Custo"] = bruto.get("Custo do item", bruto.get("Preço de Custo"))
     
-    # Faturamento Líquido (Total BRL) e Faturamento Bruto (Receita por produtos BRL)
     df["Preço Total"] = bruto.get("Total (BRL)", bruto.get("Preço Total"))
     df["Faturamento Bruto"] = bruto.get("Receita por produtos (BRL)", df["Preço Total"])
     
@@ -107,26 +102,21 @@ def adaptar_exportacao_original(bruto: pd.DataFrame) -> pd.DataFrame:
 
 
 def ler_excel(conteudo: bytes) -> pd.DataFrame:
-    try:
-        bruto = pd.read_excel(io.BytesIO(conteudo), dtype=str)
-    except Exception as erro:
-        raise ValueError(f"Não foi possível interpretar o arquivo Excel. Detalhe: {erro}")
+    bruto = pd.read_excel(io.BytesIO(conteudo), dtype=str)
     bruto.columns = bruto.columns.astype(str).str.strip()
     return adaptar_exportacao_original(bruto)
 
 
 def ler_csv(conteudo: bytes) -> pd.DataFrame:
-    ultimo_erro: Optional[Exception] = None
     for codificacao in ("utf-8-sig", "latin-1"):
         for sep in (";", ","):
             try:
                 bruto = pd.read_csv(io.BytesIO(conteudo), sep=sep, dtype="string", encoding=codificacao)
-            except Exception as erro:
-                ultimo_erro = erro
+                bruto.columns = bruto.columns.astype(str).str.strip()
+                return adaptar_exportacao_original(bruto)
+            except Exception:
                 continue
-            bruto.columns = bruto.columns.astype(str).str.strip()
-            return adaptar_exportacao_original(bruto)
-    raise ValueError(f"Não foi possível interpretar o CSV. Detalhe: {ultimo_erro}")
+    raise ValueError("Não foi possível interpretar o arquivo.")
 
 
 def preparar(bruto: pd.DataFrame) -> pd.DataFrame:
@@ -167,112 +157,22 @@ def carregar(conteudo: bytes, extensao: str = "xlsx") -> pd.DataFrame:
 def filtrar(df: pd.DataFrame, inicio=None, fim=None, situacoes=None, canais=None, estados=None, produtos=None) -> pd.DataFrame:
     mascara = pd.Series(True, index=df.index)
     if inicio is not None and fim is not None:
-        datas = df["Data"].dt.date
-        mascara &= datas.between(inicio, fim)
-    if situacoes is not None:
-        mascara &= df["Situação"].isin(list(situacoes))
+        mascara &= df["Data"].dt.date.between(inicio, fim)
     if canais is not None:
         mascara &= df["Loja virtual"].isin(list(canais))
     if estados is not None:
         mascara &= df["Estado"].isin(list(estados))
-    if produtos:
-        mascara &= df["Descrição"].isin(list(produtos))
     return df[mascara].copy()
-
-
-def nivel_pedido(df: pd.DataFrame) -> pd.DataFrame:
-    if df.empty:
-        return pd.DataFrame(columns=["N° do Pedido", "Data", "Canal", "Situação", "NFe", "Município", "Estado",
-                                     "Linhas", "Itens", "Valor", "Faturamento Bruto", "Frete", "Desconto"])
-    return df.groupby("N° do Pedido", as_index=False).agg(
-        Data=("Data", "min"), Canal=("Loja virtual", "first"), Situação=("Situação", "first"),
-        NFe=("Situação da NFe", "first"), Município=("Município", "first"), Estado=("Estado", "first"),
-        Linhas=("ID", "size"), Itens=("Quantidade", "sum"), Valor=("Preço Total", "sum"),
-        Faturamento Bruto=("Faturamento Bruto", "sum"),
-        Frete=("Frete", "first"), Desconto=("Desconto pedido", "first"),
-    )
 
 
 def indicadores(df: pd.DataFrame) -> dict:
     faturamento_liquido = float(df["Preço Total"].fillna(0).sum())
     faturamento_bruto = float(df["Faturamento Bruto"].fillna(0).sum()) if "Faturamento Bruto" in df.columns else faturamento_liquido
     pedidos = int(df["N° do Pedido"].nunique())
-    itens = float(df["Quantidade"].fillna(0).sum())
-    po = nivel_pedido(df)
-    com_custo = df[df["Custo informado"]]
-    fat_com_custo = float(com_custo["Preço Total"].fillna(0).sum())
-    margem = float(com_custo["Margem bruta estimada"].sum())
     
     return {
         "faturamento": faturamento_liquido,
         "faturamento_bruto": faturamento_bruto,
         "pedidos": pedidos,
-        "itens": itens,
         "ticket_medio": faturamento_liquido / pedidos if pedidos else 0.0,
-        "itens_por_pedido": itens / pedidos if pedidos else 0.0,
-        "frete_total": float(po["Frete"].fillna(0).sum()) if pedidos else 0.0,
-        "desconto_total": float(po["Desconto"].fillna(0).sum()) if pedidos else 0.0,
-        "pct_frete_gratis": float((po["Frete"].fillna(0) == 0).mean()) if pedidos else np.nan,
-        "custo_estimado": float(com_custo["Custo total estimado"].sum()),
-        "margem_bruta": margem,
-        "margem_pct": margem / fat_com_custo if fat_com_custo else np.nan,
-        "cobertura_custo": fat_com_custo / faturamento_liquido if faturamento_liquido else np.nan,
-        "nfe_pendentes": int((po["NFe"] == "Pendente").sum()) if pedidos else 0,
     }
-
-
-def taxa_cancelamento(df: pd.DataFrame, por: Optional[str] = None):
-    po = df.groupby("N° do Pedido", as_index=False).agg(
-        cancelado=("Cancelado", "max"), grupo=(por, "first") if por else ("Cancelado", "size"))
-    if por is None:
-        return float(po["cancelado"].mean()) if len(po) else np.nan
-    saida = po.groupby("grupo", as_index=False).agg(Pedidos=("cancelado", "size"), Cancelados=("cancelado", "sum"))
-    saida["Taxa de cancelamento"] = saida["Cancelados"] / saida["Pedidos"]
-    return saida.rename(columns={"grupo": por})
-
-
-def serie_diaria(df: pd.DataFrame) -> pd.DataFrame:
-    if df.empty or df["Data"].dropna().empty:
-        return pd.DataFrame(columns=["Data", "Faturamento", "Pedidos", "Média móvel 7 dias", "Acumulado"])
-    d = df.groupby("Data").agg(Faturamento=("Preço Total", "sum"), Pedidos=("N° do Pedido", "nunique"))
-    intervalo = pd.date_range(d.index.min(), d.index.max(), freq="D")
-    d = d.reindex(intervalo, fill_value=0)
-    d.index.name = "Data"
-    d["Média móvel 7 dias"] = d["Faturamento"].rolling(7, min_periods=1).mean()
-    d["Acumulado"] = d["Faturamento"].cumsum()
-    return d.reset_index()
-
-
-def curva_abc(df: pd.DataFrame) -> pd.DataFrame:
-    p = df.groupby("Descrição", as_index=False).agg(Faturamento=("Preço Total", "sum"))
-    p = p[p["Faturamento"] > 0].sort_values("Faturamento", ascending=False).reset_index(drop=True)
-    total = p["Faturamento"].sum()
-    if p.empty or total == 0:
-        p["% do total"] = []
-        p["% acumulado"] = []
-        p["Classe"] = []
-        return p
-    p["% do total"] = p["Faturamento"] / total * 100
-    p["% acumulado"] = p["% do total"].cumsum()
-    anterior = p["% acumulado"] - p["% do total"]
-    p["Classe"] = np.where(anterior < 80, "A", np.where(anterior < 95, "B", "C"))
-    return p
-
-
-def mascarar_nome(nome) -> str:
-    if nome is None or (isinstance(nome, float) and np.isnan(nome)) or pd.isna(nome):
-        return ""
-    partes = [p for p in str(nome).split() if p]
-    return " ".join(f"{p[0].upper()}." for p in partes)
-
-
-def destaques(df: pd.DataFrame, df_todas_situacoes: Optional[pd.DataFrame] = None) -> list[str]:
-    if df.empty:
-        return []
-    ind = indicadores(df)
-    frases: list[str] = []
-    diaria = serie_diaria(df)
-    if not diaria.empty and diaria["Faturamento"].max() > 0:
-        melhor = diaria.loc[diaria["Faturamento"].idxmax()]
-        frases.append(f"Melhor dia: {melhor['Data']:%d/%m} ({brl(melhor['Faturamento'])}, {inteiro(melhor['Pedidos'])} pedidos).")
-    return frases
