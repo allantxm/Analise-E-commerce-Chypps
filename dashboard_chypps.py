@@ -158,7 +158,6 @@ for _chave, _valor in _TOKENS.items():
 st.markdown(f"<style>{_css}</style>", unsafe_allow_html=True)
 
 
-# ---------- Compatibilidade entre versões do Streamlit ----------
 def _versao():
     try:
         return tuple(int(p) for p in st.__version__.split(".")[:2])
@@ -169,7 +168,6 @@ def _versao():
 _LARGURA = {"width": "stretch"} if _versao() >= (1, 50) else {"use_container_width": True}
 
 
-# ---------- Componentes visuais ----------
 def _h(texto) -> str:
     return html.escape(str(texto)).replace("$", "&#36;")
 
@@ -278,7 +276,6 @@ def faixa_kpis(itens):
     return "<div class='vt-strip'>" + "".join(celulas) + "</div>"
 
 
-# ---------- Carga da base (somente leitura) ----------
 @st.cache_data(show_spinner="Lendo e preparando a base...")
 def carregar_base(conteudo: bytes, extensao: str) -> pd.DataFrame:
     return dados.carregar(conteudo, extensao=extensao)
@@ -290,7 +287,6 @@ st.sidebar.markdown(
     unsafe_allow_html=True,
 )
 
-# Caminhos padrão suportados (.xlsx ou .csv)
 caminho_xlsx = Path(__file__).resolve().parent / "fVendas.xlsx"
 caminho_csv = Path(__file__).resolve().parent / "fVendas.csv"
 
@@ -324,8 +320,6 @@ if df.empty:
     st.warning("A base não contém registros.")
     st.stop()
 
-
-# ---------- Filtros ----------
 st.sidebar.divider()
 st.sidebar.subheader("Filtros")
 datas_validas = df["Data"].dropna()
@@ -385,8 +379,6 @@ ind = dados.indicadores(f)
 taxa_canc = dados.taxa_cancelamento(f_todas)
 diaria = dados.serie_diaria(f)
 
-
-# ---------- Cabeçalho e indicadores ----------
 cabecalho(inicio, fim, origem)
 margem_ok = pd.notna(ind["margem_pct"])
 
@@ -443,8 +435,6 @@ aba_geral, aba_produtos, aba_canais, aba_geo, aba_pedidos, aba_dados = st.tabs(
     ["Visão geral", "Produtos", "Canais", "Geografia", "Pedidos e status", "Dados e exportação"]
 )
 
-
-# ======================= VISÃO GERAL =======================
 with aba_geral:
     esq, dir_ = st.columns([1.3, 1])
     with esq:
@@ -474,53 +464,6 @@ with aba_geral:
         centro_rosca(fig, brl(ind["faturamento"]), "faturamento")
         grafico(fig, 360)
 
-    esq, dir_ = st.columns([1.3, 1])
-    with esq:
-        st.subheader("Faturamento acumulado" + (" e meta" if meta > 0 else ""))
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=diaria["Data"], y=diaria["Acumulado"], mode="lines", fill="tozeroy",
-            name="Acumulado", line=dict(color=PURPLE, width=3),
-            fillcolor="rgba(143,125,255,0.14)",
-        ))
-        if meta > 0:
-            fig.add_hline(
-                y=meta, line_dash="dash", line_color=AMBER,
-                annotation_text=f"Meta {brl(meta)}", annotation_font_color=AMBER,
-            )
-        fig.update_yaxes(title="Faturamento acumulado", tickprefix="R$ ")
-        fig.update_xaxes(tickformat="%d/%m")
-        grafico(fig, 320)
-
-    with dir_:
-        if meta > 0:
-            st.subheader("Meta do período")
-            fig = go.Figure(go.Indicator(
-                mode="gauge+number", value=ind["faturamento"],
-                number=dict(prefix="R$ ", valueformat=",.0f", font=dict(size=34, color=TEXT)),
-                gauge=dict(
-                    axis=dict(range=[0, max(meta, ind["faturamento"]) * 1.1],
-                              tickcolor=MUTED, tickfont=dict(color=MUTED)),
-                    bar=dict(color=PURPLE, thickness=0.7),
-                    bgcolor="rgba(255,255,255,0.05)", borderwidth=0,
-                    threshold=dict(line=dict(color=AMBER, width=3), thickness=0.85, value=meta),
-                ),
-                title=dict(
-                    text=f"{ind['faturamento'] / meta:.0%} da meta".replace(".", ","),
-                    font=dict(size=14, color=MUTED),
-                ),
-            ))
-            grafico(fig, 320)
-        else:
-            st.subheader("Faturamento por dia da semana")
-            sem = dados.por_dia_semana(f)
-            fig = px.bar(sem, x="Dia da semana", y="Faturamento médio",
-                         color_discrete_sequence=[TEAL])
-            fig.update_yaxes(tickprefix="R$ ")
-            grafico(fig, 320)
-
-
-# ======================= PRODUTOS =======================
 with aba_produtos:
     abc = dados.curva_abc(f)
     st.subheader("Curva ABC: onde está o faturamento")
@@ -558,8 +501,6 @@ with aba_produtos:
          "Itens": inteiro, "Pedidos": inteiro},
     )
 
-
-# ======================= CANAIS =======================
 with aba_canais:
     st.subheader("Comparativo entre canais")
     ch = f.groupby("Loja virtual", as_index=False).agg(
@@ -596,8 +537,6 @@ with aba_canais:
          "Pedidos": inteiro, "Taxa de cancelamento": "{:.1%}"},
     )
 
-
-# ======================= GEOGRAFIA =======================
 with aba_geo:
     geo = f.groupby("Estado", as_index=False).agg(
         Faturamento=("Preço Total", "sum"),
@@ -631,8 +570,35 @@ with aba_geo:
         {"Faturamento": brl, "Pedidos": inteiro, "Itens": inteiro},
     )
 
+with aba_pedidos:
+    po = dados.nivel_pedido(f)
+    po_todos = dados.nivel_pedido(f_todas)
 
-# ======================= DADOS E EXPORTAÇÃO =======================
+    st.subheader("Situação dos pedidos")
+    s1, s2 = st.columns(2)
+    with s1:
+        sit = po_todos.groupby("Situação", as_index=False).agg(
+            Pedidos=("N° do Pedido", "nunique")
+        )
+        fig = px.bar(
+            sit, x="Situação", y="Pedidos", color="Situação",
+            color_discrete_sequence=PALETA, text_auto=True,
+            title="Pedidos por situação (inclui cancelados)",
+        )
+        fig.update_layout(showlegend=False)
+        grafico(fig, 330)
+
+    with s2:
+        nfe = po.groupby("NFe", as_index=False).agg(Pedidos=("N° do Pedido", "nunique"))
+        fig = px.pie(
+            nfe, names="NFe", values="Pedidos", hole=0.6,
+            color_discrete_sequence=PALETA, title="Situação da NF-e (pedidos filtrados)",
+        )
+        fig.update_traces(textposition="inside", textinfo="percent",
+                          insidetextorientation="horizontal")
+        centro_rosca(fig, inteiro(po["N° do Pedido"].nunique()), "pedidos")
+        grafico(fig, 330)
+
 with aba_dados:
     st.subheader("Registros filtrados")
     colunas = [col for col in dados.COLUNAS_OBRIGATORIAS if col in f.columns]

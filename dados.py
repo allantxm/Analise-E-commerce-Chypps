@@ -66,7 +66,6 @@ def pct(valor, casas: int = 1) -> str:
 # Leitura e preparação
 # ----------------------------------------------------------------------------
 def numero_br(serie: pd.Series) -> pd.Series:
-    """Converte texto no padrão brasileiro ('1.234,56', 'R$ 94,9') em número."""
     if pd.api.types.is_numeric_dtype(serie):
         return pd.to_numeric(serie, errors="coerce").astype("float64")
     s = serie.astype("string").str.strip()
@@ -77,7 +76,6 @@ def numero_br(serie: pd.Series) -> pd.Series:
 
 
 def adaptar_exportacao_original(bruto: pd.DataFrame) -> pd.DataFrame:
-    """Mapeia a exportação original do sistema para o esquema interno do dashboard."""
     colunas_origem = {
         "N.º de venda", "Estado", "Data de venda", "Cidade", "UF",
         "Título do anúncio", "Unidades", "Custo do item", "Total (BRL)",
@@ -120,7 +118,6 @@ def adaptar_exportacao_original(bruto: pd.DataFrame) -> pd.DataFrame:
 
 
 def ler_excel(conteudo: bytes) -> pd.DataFrame:
-    """Lê a planilha Excel (.xlsx) da exportação original sem modificar o arquivo."""
     try:
         bruto = pd.read_excel(io.BytesIO(conteudo), dtype=str)
     except Exception as erro:
@@ -135,7 +132,6 @@ def ler_excel(conteudo: bytes) -> pd.DataFrame:
 
 
 def ler_csv(conteudo: bytes) -> pd.DataFrame:
-    """Lê CSV adaptado (;) ou a exportação original (,) sem modificar o arquivo."""
     ultimo_erro: Optional[Exception] = None
     for codificacao in ("utf-8-sig", "latin-1"):
         for sep in (";", ","):
@@ -155,7 +151,6 @@ def ler_csv(conteudo: bytes) -> pd.DataFrame:
 
 
 def preparar(bruto: pd.DataFrame) -> pd.DataFrame:
-    """Valida colunas, converte tipos e cria colunas derivadas."""
     faltando = [c for c in COLUNAS_OBRIGATORIAS if c not in bruto.columns]
     if faltando:
         raise ValueError("Colunas obrigatórias ausentes: " + ", ".join(faltando))
@@ -164,7 +159,6 @@ def preparar(bruto: pd.DataFrame) -> pd.DataFrame:
     for col in NUMERICAS:
         df[col] = numero_br(df[col])
     
-    # Tratamento de datas
     if pd.api.types.is_datetime64_any_dtype(df["Data"]):
         datas = df["Data"]
     else:
@@ -196,9 +190,6 @@ def carregar(conteudo: bytes, extensao: str = "csv") -> pd.DataFrame:
     return preparar(ler_csv(conteudo))
 
 
-# ----------------------------------------------------------------------------
-# Filtros
-# ----------------------------------------------------------------------------
 def filtrar(
     df: pd.DataFrame,
     inicio=None,
@@ -223,9 +214,6 @@ def filtrar(
     return df[mascara].copy()
 
 
-# ----------------------------------------------------------------------------
-# Indicadores
-# ----------------------------------------------------------------------------
 def nivel_pedido(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame(columns=["N° do Pedido", "Data", "Canal", "Situação", "NFe", "Município", "Estado",
