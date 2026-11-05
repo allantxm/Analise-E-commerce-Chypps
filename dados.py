@@ -1,6 +1,6 @@
 """Camada de dados do dashboard Chypps Tecnologia.
 
-Consome o Excel original ou CSV em modo de leitura estrita.
+Lê e processa o fVendas.xlsx de forma segura.
 """
 from __future__ import annotations
 
@@ -68,13 +68,14 @@ def numero_br(serie: pd.Series) -> pd.Series:
 
 
 def adaptar_exportacao_original(bruto: pd.DataFrame) -> pd.DataFrame:
-    bruto = bruto.dropna(how="all")
+    # Remove linhas vazias onde não há número de venda
+    bruto = bruto.dropna(subset=["N.º de venda"])
+    
     df = pd.DataFrame(index=bruto.index)
     df["ID"] = [f"L{i:04d}" for i in range(1, len(bruto) + 1)]
-    df["N° do Pedido"] = bruto.get("N.º de venda", bruto.get("N° do Pedido", pd.Series(index=bruto.index, dtype="string")))
-    df["Data"] = bruto.get("Data de venda", bruto.get("Data", pd.Series(index=bruto.index, dtype="string")))
-    df["Município"] = bruto.get("Cidade", bruto.get("Município", pd.Series(index=bruto.index, dtype="string")))
-    df["Estado"] = bruto.get("UF", bruto.get("Estado", pd.Series(index=bruto.index, dtype="string")))
+    df["N° do Pedido"] = bruto["N.º de venda"].astype(str)
+    df["Data"] = pd.to_datetime(bruto["Data de venda"], errors="coerce")
+    df["Município"] = bruto["Cidade"].astype(str)
     
     mapa_uf = {
         "Acre": "AC", "Alagoas": "AL", "Amapá": "AP", "Amazonas": "AM",
@@ -85,21 +86,21 @@ def adaptar_exportacao_original(bruto: pd.DataFrame) -> pd.DataFrame:
         "Rio Grande do Sul": "RS", "Rondônia": "RO", "Roraima": "RR", "Santa Catarina": "SC",
         "São Paulo": "SP", "Sergipe": "SE", "Tocantins": "TO",
     }
-    df["Estado"] = df["Estado"].astype("string").str.strip().replace(mapa_uf).str.upper()
-    df["Situação"] = bruto.get("Estado", pd.Series("Concluído", index=bruto.index))
-    df["Descrição"] = bruto.get("Título do anúncio", bruto.get("Descrição", pd.Series(index=bruto.index, dtype="string")))
-    df["Quantidade"] = bruto.get("Unidades", bruto.get("Quantidade", 1))
-    df["Valor unitário"] = bruto.get("Preço unitário de venda do anúncio (BRL)", bruto.get("Valor unitário", 0))
-    df["Preço de Custo"] = bruto.get("Custo do item", bruto.get("Preço de Custo", 0))
-    df["Preço Total"] = bruto.get("Total (BRL)", bruto.get("Preço Total", 0))
-    df["Receita Produtos"] = bruto.get("Receita por produtos (BRL)", df["Preço Total"])
-    df["Loja virtual"] = bruto.get("Conta", bruto.get("Loja virtual", "Geral"))
-    df["Código do produto"] = bruto.get("SKU", bruto.get("Código do produto", ""))
-    df["Frete"] = bruto.get("Receita por envio (BRL)", bruto.get("Frete", 0))
-    df["Desconto pedido"] = bruto.get("Valor de desconto do carrinho", bruto.get("Desconto pedido", 0))
-    df["Situação da NFe"] = bruto.get("NF-e em anexo", bruto.get("Situação da NFe", "Emitida")).replace({"Não emitida": "Pendente"})
-    df["Nome do contato"] = bruto.get("Comprador", bruto.get("Nome do destinatário", bruto.get("Nome do contato", "")))
-    df["Bairro"] = bruto.get("Bairro", "")
+    df["Estado"] = bruto["UF"].astype(str).str.strip().replace(mapa_uf).str.upper()
+    df["Situação"] = bruto["Estado"].astype(str)
+    df["Descrição"] = bruto["Título do anúncio"].astype(str)
+    df["Quantidade"] = bruto["Unidades"]
+    df["Valor unitário"] = bruto["Preço unitário de venda do anúncio (BRL)"]
+    df["Preço de Custo"] = bruto["Custo do item"]
+    df["Preço Total"] = bruto["Total (BRL)"]
+    df["Receita Produtos"] = bruto["Receita por produtos (BRL)"]
+    df["Loja virtual"] = bruto["Conta"].astype(str)
+    df["Código do produto"] = bruto["SKU"].astype(str)
+    df["Frete"] = bruto["Receita por envio (BRL)"]
+    df["Desconto pedido"] = bruto["Valor de desconto do carrinho"]
+    df["Situação da NFe"] = bruto["NF-e em anexo"].astype(str).replace({"Não emitida": "Pendente"})
+    df["Nome do contato"] = bruto["Comprador"].astype(str)
+    df["Bairro"] = bruto["Bairro"].astype(str)
     return df[COLUNAS_OBRIGATORIAS]
 
 
@@ -108,36 +109,18 @@ def carregar(conteudo: bytes, extensao: str = "xlsx") -> pd.DataFrame:
         if extensao.lower() in ("xlsx", "xls"):
             bruto = pd.read_excel(io.BytesIO(conteudo))
         else:
-            bruto = None
-            for cod in ("utf-8-sig", "latin-1"):
-                for sep in (";", ","):
-                    try:
-                        bruto = pd.read_csv(io.BytesIO(conteudo), sep=sep, encoding=cod)
-                        break
-                    except Exception:
-                        continue
-                if bruto is not None:
-                    break
-            if bruto is None:
-                raise ValueError("Não foi possível ler o CSV.")
+            bruto = pd.read_csv(io.BytesIO(conteudo), encoding="utf-8-sig", sep=None, engine="python")
     except Exception as e:
         raise ValueError(f"Erro ao interpretar arquivo: {e}")
 
     bruto.columns = bruto.columns.astype(str).str.strip()
     df = adaptar_exportacao_original(bruto)
-    df = df.dropna(subset=["N° do Pedido"])
+    df = df.dropna(subset=["N° do Pedido", "Data"])
 
     for col in NUMERICAS:
         if col in df.columns:
             df[col] = numero_br(df[col])
 
-    # Conversão robusta de data sem forçar dayfirst incorreto
-    if pd.api.types.is_datetime64_any_dtype(df["Data"]):
-        df["Data"] = pd.to_datetime(df["Data"])
-    else:
-        df["Data"] = pd.to_datetime(df["Data"], errors="coerce")
-
-    df = df.dropna(subset=["Data"])
     df["Mês"] = df["Data"].dt.to_period("M").astype("string")
     df["Dia"] = df["Data"].dt.day
     df["Dia da semana"] = df["Data"].dt.dayofweek.map(dict(enumerate(DIAS_SEMANA)))
