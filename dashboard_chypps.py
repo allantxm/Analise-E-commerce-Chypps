@@ -52,8 +52,6 @@ section[data-testid="stSidebar"] { background:rgba(11,16,28,.84); -webkit-backdr
     backdrop-filter:blur(16px); border-right:1px solid __LINE__; }
 .vt-hero { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between;
     gap:16px 28px; margin:0 0 22px; padding-bottom:20px; border-bottom:1px solid __LINE__; }
-.vt-mark { width:46px; height:46px; flex:none; display:grid; place-items:center; border-radius:14px;
-    font-weight:800; font-size:1.35rem; color:__BG__; background:linear-gradient(135deg,__PURPLE__,__TEAL__); }
 .vt-title { font-size:1.85rem; font-weight:800; letter-spacing:-.03em; color:__TEXT__; }
 .vt-subtitle { margin-top:4px; font-size:.95rem; color:__MUTED__; }
 .vt-kpis { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:14px; }
@@ -133,8 +131,23 @@ st.sidebar.divider()
 st.sidebar.subheader("Filtros")
 datas_validas = df["Data"].dropna()
 data_min, data_max = datas_validas.min().date(), datas_validas.max().date()
-selecao = st.sidebar.date_input("Período", value=(data_min, data_max), min_value=data_min, max_value=data_max)
-inicio, fim = selecao if isinstance(selecao, tuple) and len(selecao) == 2 else (data_min, data_max)
+
+selecao = st.sidebar.date_input(
+    "Período", 
+    value=(data_min, data_max), 
+    min_value=data_min, 
+    max_value=data_max
+)
+
+if isinstance(selecao, tuple):
+    if len(selecao) == 2:
+        inicio, fim = selecao
+    elif len(selecao) == 1:
+        inicio = fim = selecao[0]
+    else:
+        inicio, fim = data_min, data_max
+else:
+    inicio = fim = selecao
 
 lojas = sorted(df["Loja virtual"].dropna().unique().tolist())
 canais = st.sidebar.multiselect("Canal de venda (Conta)", lojas, default=lojas)
@@ -144,10 +157,8 @@ estados = st.sidebar.multiselect("Estado", ufs, default=ufs)
 
 f = dados.filtrar(df, inicio, fim, None, canais, estados, None)
 
-# Cálculo exato das medidas DAX solicitadas (Faturamento Bruto / Líquido Mês Atual, Anterior e % MoM)
 fat_liq_atual, fat_liq_ant, fat_bruto_atual, fat_bruto_ant, variacao_mom = dados.calcular_metricas_mes_atual_anterior(df, canais, estados)
 
-# Formatação da seta MoM idêntica à medida DAX
 if variacao_mom > 0:
     seta_mom = f"📈 +{variacao_mom * 100:.2f}%".replace(".", ",")
 elif variacao_mom < 0:
@@ -161,7 +172,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Exibição dos KPIs alinhados com as Medidas DAX
 st.markdown("### 📌 Indicadores do Mês Atual vs Mês Anterior (DAX Equivalente)")
 col1, col2, col3, col4 = st.columns(4)
 
