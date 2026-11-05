@@ -20,6 +20,7 @@ COLUNAS_OBRIGATORIAS = [
 NUMERICAS = ["Desconto pedido", "Frete", "Quantidade", "Valor unitário", "Preço de Custo", "Preço Total"]
 DIAS_SEMANA = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
 
+# Centro aproximado de cada UF (latitude, longitude), usado só para o mapa de bolhas.
 CENTROS_UF = {
     "AC": (-9.0, -70.5), "AL": (-9.6, -36.8), "AP": (1.4, -51.8), "AM": (-3.9, -63.9),
     "BA": (-12.5, -41.7), "CE": (-5.2, -39.3), "DF": (-15.8, -47.9), "ES": (-19.6, -40.6),
@@ -31,6 +32,9 @@ CENTROS_UF = {
 }
 
 
+# ----------------------------------------------------------------------------
+# Formatação (padrão brasileiro)
+# ----------------------------------------------------------------------------
 def brl(valor) -> str:
     try:
         valor = float(valor)
@@ -58,6 +62,9 @@ def pct(valor, casas: int = 1) -> str:
     return f"{valor * 100:.{casas}f}%".replace(".", ",")
 
 
+# ----------------------------------------------------------------------------
+# Leitura e preparação
+# ----------------------------------------------------------------------------
 def numero_br(serie: pd.Series) -> pd.Series:
     if pd.api.types.is_numeric_dtype(serie):
         return pd.to_numeric(serie, errors="coerce").astype("float64")
@@ -69,16 +76,21 @@ def numero_br(serie: pd.Series) -> pd.Series:
 
 
 def adaptar_exportacao_original(bruto: pd.DataFrame) -> pd.DataFrame:
-    # Remove linhas totalmente vazias antes de processar
-    bruto = bruto.dropna(how="all")
-    
+    colunas_origem = {
+        "N.º de venda", "Estado", "Data de venda", "Cidade", "UF",
+        "Título do anúncio", "Unidades", "Custo do item", "Total (BRL)",
+        "Conta", "SKU", "Receita por envio (BRL)",
+        "Valor de desconto do carrinho", "NF-e em anexo",
+    }
+    if not colunas_origem.issubset(set(bruto.columns)):
+        return bruto
+
     df = pd.DataFrame(index=bruto.index)
     df["ID"] = [f"L{i:04d}" for i in range(1, len(bruto) + 1)]
-    df["N° do Pedido"] = bruto.get("N.º de venda", bruto.get("N° do Pedido", pd.Series(index=bruto.index, dtype="string")))
-    df["Data"] = bruto.get("Data de venda", bruto.get("Data", pd.Series(index=bruto.index, dtype="string")))
-    df["Município"] = bruto.get("Cidade", bruto.get("Município", pd.Series(index=bruto.index, dtype="string")))
-    df["Estado"] = bruto.get("UF", bruto.get("Estado", pd.Series(index=bruto.index, dtype="string")))
-    
+    df["N° do Pedido"] = bruto["N.º de venda"]
+    df["Data"] = bruto["Data de venda"]
+    df["Município"] = bruto["Cidade"]
+    df["Estado"] = bruto["UF"]
     mapa_uf = {
         "Acre": "AC", "Alagoas": "AL", "Amapá": "AP", "Amazonas": "AM",
         "Bahia": "BA", "Ceará": "CE", "Distrito Federal": "DF", "Espírito Santo": "ES",
@@ -89,19 +101,19 @@ def adaptar_exportacao_original(bruto: pd.DataFrame) -> pd.DataFrame:
         "São Paulo": "SP", "Sergipe": "SE", "Tocantins": "TO",
     }
     df["Estado"] = df["Estado"].astype("string").str.strip().replace(mapa_uf).str.upper()
-    df["Situação"] = bruto.get("Estado", pd.Series("Concluído", index=bruto.index))
-    df["Descrição"] = bruto.get("Título do anúncio", bruto.get("Descrição", pd.Series(index=bruto.index, dtype="string")))
-    df["Quantidade"] = bruto.get("Unidades", bruto.get("Quantidade", 1))
-    df["Valor unitário"] = bruto.get("Preço unitário de venda do anúncio (BRL)", bruto.get("Valor unitário", 0))
-    df["Preço de Custo"] = bruto.get("Custo do item", bruto.get("Preço de Custo", 0))
-    df["Preço Total"] = bruto.get("Total (BRL)", bruto.get("Preço Total", 0))
-    df["Loja virtual"] = bruto.get("Conta", bruto.get("Loja virtual", "Geral"))
-    df["Código do produto"] = bruto.get("SKU", bruto.get("Código do produto", ""))
-    df["Frete"] = bruto.get("Receita por envio (BRL)", bruto.get("Frete", 0))
-    df["Desconto pedido"] = bruto.get("Valor de desconto do carrinho", bruto.get("Desconto pedido", 0))
-    df["Situação da NFe"] = bruto.get("NF-e em anexo", bruto.get("Situação da NFe", "Emitida")).replace({"Não emitida": "Pendente"})
-    df["Nome do contato"] = bruto.get("Comprador", bruto.get("Nome do destinatário", bruto.get("Nome do contato", "")))
-    df["Bairro"] = bruto.get("Bairro", "")
+    df["Situação"] = bruto["Estado"]
+    df["Descrição"] = bruto["Título do anúncio"]
+    df["Quantidade"] = bruto["Unidades"]
+    df["Valor unitário"] = bruto.get("Preço unitário de venda do anúncio (BRL)", pd.Series(index=bruto.index, dtype="string"))
+    df["Preço de Custo"] = bruto["Custo do item"]
+    df["Preço Total"] = bruto["Total (BRL)"]
+    df["Loja virtual"] = bruto["Conta"]
+    df["Código do produto"] = bruto["SKU"]
+    df["Frete"] = bruto["Receita por envio (BRL)"]
+    df["Desconto pedido"] = bruto["Valor de desconto do carrinho"]
+    df["Situação da NFe"] = bruto["NF-e em anexo"].replace({"Não emitida": "Pendente"})
+    df["Nome do contato"] = bruto.get("Comprador", bruto.get("Nome do destinatário", pd.Series(index=bruto.index, dtype="string")))
+    df["Bairro"] = bruto.get("Bairro", pd.Series(index=bruto.index, dtype="string"))
     return df[COLUNAS_OBRIGATORIAS]
 
 
@@ -110,8 +122,13 @@ def ler_excel(conteudo: bytes) -> pd.DataFrame:
         bruto = pd.read_excel(io.BytesIO(conteudo), dtype=str)
     except Exception as erro:
         raise ValueError(f"Não foi possível interpretar o arquivo Excel. Detalhe: {erro}")
+    
     bruto.columns = bruto.columns.astype(str).str.strip()
-    return adaptar_exportacao_original(bruto)
+    if "N° do Pedido" in bruto.columns:
+        return bruto
+    if "N.º de venda" in bruto.columns:
+        return adaptar_exportacao_original(bruto)
+    return bruto
 
 
 def ler_csv(conteudo: bytes) -> pd.DataFrame:
@@ -126,27 +143,32 @@ def ler_csv(conteudo: bytes) -> pd.DataFrame:
                 ultimo_erro = erro
                 continue
             bruto.columns = bruto.columns.astype(str).str.strip()
-            return adaptar_exportacao_original(bruto)
+            if "N° do Pedido" in bruto.columns:
+                return bruto
+            if "N.º de venda" in bruto.columns:
+                return adaptar_exportacao_original(bruto)
     raise ValueError(f"Não foi possível interpretar o CSV. Detalhe: {ultimo_erro}")
 
 
 def preparar(bruto: pd.DataFrame) -> pd.DataFrame:
-    df = bruto.dropna(subset=["N° do Pedido"]).copy()
-    
+    faltando = [c for c in COLUNAS_OBRIGATORIAS if c not in bruto.columns]
+    if faltando:
+        raise ValueError("Colunas obrigatórias ausentes: " + ", ".join(faltando))
+
+    df = bruto.copy()
     for col in NUMERICAS:
-        if col in df.columns:
-            df[col] = numero_br(df[col])
+        df[col] = numero_br(df[col])
     
-    if "Data" in df.columns:
-        if pd.api.types.is_datetime64_any_dtype(df["Data"]):
-            datas = df["Data"]
-        else:
-            texto = df["Data"].astype("string").str.strip()
-            datas = pd.to_datetime(texto, dayfirst=True, errors="coerce")
-        df["Data"] = datas
-
-    df = df.dropna(subset=["Data"])
-
+    if pd.api.types.is_datetime64_any_dtype(df["Data"]):
+        datas = df["Data"]
+    else:
+        texto = df["Data"].astype("string").str.strip()
+        datas = pd.to_datetime(texto, format="%d/%m/%Y", errors="coerce")
+        resto = datas.isna() & texto.notna()
+        if resto.any():
+            datas = datas.where(~resto, pd.to_datetime(texto, dayfirst=True, errors="coerce"))
+    
+    df["Data"] = datas
     for col in df.columns:
         if col not in NUMERICAS and col != "Data":
             df[col] = df[col].astype("string").str.strip()
@@ -157,7 +179,7 @@ def preparar(bruto: pd.DataFrame) -> pd.DataFrame:
     df["Custo informado"] = df["Preço de Custo"].fillna(0) > 0
     df["Custo total estimado"] = df["Preço de Custo"].fillna(0) * df["Quantidade"].fillna(0)
     df["Margem bruta estimada"] = df["Preço Total"].fillna(0) - df["Custo total estimado"]
-    df["Linha idêntica"] = df.duplicated(keep="first").to_numpy() if not df.empty else False
+    df["Linha idêntica"] = bruto.duplicated(keep="first").to_numpy()
     df["Cancelado"] = df["Situação"].fillna("").str.casefold().eq("cancelado")
     return df
 
@@ -242,8 +264,7 @@ def taxa_cancelamento(df: pd.DataFrame, por: Optional[str] = None):
 def serie_diaria(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty or df["Data"].dropna().empty:
         return pd.DataFrame(columns=["Data", "Faturamento", "Pedidos", "Média móvel 7 dias", "Acumulado"])
-    d = df.groupby(df["Data"].dt.date).agg(Faturamento=("Preço Total", "sum"), Pedidos=("N° do Pedido", "nunique"))
-    d.index = pd.to_datetime(d.index)
+    d = df.groupby("Data").agg(Faturamento=("Preço Total", "sum"), Pedidos=("N° do Pedido", "nunique"))
     intervalo = pd.date_range(d.index.min(), d.index.max(), freq="D")
     d = d.reindex(intervalo, fill_value=0)
     d.index.name = "Data"
