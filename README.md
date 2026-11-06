@@ -3,6 +3,15 @@
 Painel de inteligência comercial feito sobre a planilha **fVendas.xlsx** (Mercado Livre, Shopee e
 WooCommerce consolidados). A planilha é **somente lida**: nenhuma função grava ou altera o arquivo.
 
+## Acesso protegido
+O dashboard abre uma tela de bloqueio antes de carregar/exibir os dados. A senha é digitada em texto visível, conforme solicitado.
+
+Para execução local, crie `.streamlit/secrets.toml` na pasta do projeto com:
+```toml
+APP_PASSWORD = "#ChyppsAnalytics"
+```
+Mantenha esse arquivo privado e não o publique em repositórios. Depois de entrar, use **Sair / bloquear painel** na barra lateral para bloquear novamente.
+
 ## Como rodar
 ```
 pip install -r requirements.txt

@@ -158,6 +158,56 @@ for _chave, _valor in _TOKENS.items():
     _css = _css.replace(_chave, _valor)
 st.markdown(f"<style>{_css}</style>", unsafe_allow_html=True)
 
+# ---------- Proteção por senha ----------
+# Configure APP_PASSWORD em .streamlit/secrets.toml (não publique esse arquivo).
+_senha_configurada = st.secrets.get("APP_PASSWORD", "")
+if not _senha_configurada:
+    st.error(
+        "A senha de acesso ainda não foi configurada. Crie o arquivo "
+        "`.streamlit/secrets.toml` com `APP_PASSWORD = \"#ChyppsAnalytics\"`."
+    )
+    st.stop()
+
+if not st.session_state.get("chypps_autenticado", False):
+    st.markdown("""
+    <style>
+    [data-testid="stSidebar"] { display:none; }
+    .block-container { max-width:100% !important; padding-top:8vh !important; }
+    .vt-lock-backdrop { position:fixed; inset:-24px; z-index:0; pointer-events:none;
+        filter:blur(10px); opacity:.48; transform:scale(1.04);
+        background:radial-gradient(ellipse at 18% 20%,rgba(143,125,255,.35),transparent 35%),
+        radial-gradient(ellipse at 80% 30%,rgba(56,214,196,.22),transparent 35%),#0A0E19; }
+    .vt-lock-card { position:relative; z-index:1; max-width:480px; margin:5vh auto 0;
+        padding:34px 36px; border-radius:22px; text-align:center;
+        background:rgba(18,25,41,.92); border:1px solid rgba(255,255,255,.12);
+        box-shadow:0 24px 90px rgba(0,0,0,.48); backdrop-filter:blur(18px); }
+    .vt-lock-mark { width:58px;height:58px;margin:0 auto 18px;border-radius:18px;
+        display:grid;place-items:center;font-size:1.7rem;font-weight:800;color:#0A0E19;
+        background:linear-gradient(135deg,#8F7DFF,#38D6C4); }
+    .vt-lock-title { color:#EDF0F8;font-size:1.65rem;font-weight:800;letter-spacing:-.03em; }
+    .vt-lock-sub { color:#9AA3B8;margin:8px 0 20px;font-size:.92rem; }
+    </style>
+    <div class="vt-lock-backdrop"></div>
+    <div class="vt-lock-card">
+      <div class="vt-lock-mark">C</div>
+      <div class="vt-lock-title">Chypps Tecnologia</div>
+      <div class="vt-lock-sub">Painel de inteligência comercial protegido.<br>Informe a senha para visualizar os dados.</div>
+    </div>
+    """, unsafe_allow_html=True)
+    with st.form("chypps_login"):
+        senha_digitada = st.text_input(
+            "Senha de acesso", type="default", placeholder="Digite a senha", autocomplete="off"
+        )
+        entrar = st.form_submit_button("Entrar no dashboard", use_container_width=True)
+    if entrar:
+        import hmac
+        if hmac.compare_digest(senha_digitada, str(_senha_configurada)):
+            st.session_state["chypps_autenticado"] = True
+            st.rerun()
+        else:
+            st.error("Senha incorreta. Tente novamente.")
+    st.stop()
+
 
 def _versao():
     try:
@@ -287,6 +337,9 @@ st.sidebar.markdown(
     "<span>Painel de inteligência comercial</span></div></div>",
     unsafe_allow_html=True,
 )
+if st.sidebar.button("Sair / bloquear painel", use_container_width=True):
+    st.session_state["chypps_autenticado"] = False
+    st.rerun()
 
 caminho_xlsx = Path(__file__).resolve().parent / "fVendas.xlsx"
 caminho_csv = Path(__file__).resolve().parent / "fVendas.csv"
