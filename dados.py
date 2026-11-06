@@ -153,6 +153,8 @@ def grupo_situacao(valor) -> str:
     if valor is None or (isinstance(valor, float) and np.isnan(valor)):
         return "Em andamento"
     t = _sem_acento(str(valor)).casefold()
+    if "pagamento pendente" in t:
+        return "Devolvido/reembolsado"
     if "pode pedir uma devolucao" in t:          # prazo aberto, a venda segue valendo
         return "Concluído"
     if "mediacao finalizada" in t and "reembols" not in t:   # 'Te demos o dinheiro'

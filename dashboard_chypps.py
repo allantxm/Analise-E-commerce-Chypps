@@ -81,7 +81,7 @@ section[data-testid="stSidebar"] hr { border-color:__LINE__; }
 .vt-chip { padding:6px 12px; border-radius:999px; font-size:.8rem; font-weight:600; color:__TEXT__;
     background:rgba(255,255,255,.05); border:1px solid __LINE__; }
 .vt-chip-soft { color:__MUTED__; font-weight:500; }
-.vt-kpis { display:grid; grid-template-columns:1.6fr 1.2fr 1fr 1fr 1fr; gap:14px; }
+.vt-kpis { display:grid; grid-template-columns:1.6fr 1.2fr 1fr 1fr; gap:14px; }
 .vt-kpi { position:relative; display:flex; flex-direction:column; gap:6px; overflow:hidden;
     min-height:128px; padding:18px 20px 16px; border-radius:18px;
     background:linear-gradient(160deg,rgba(26,35,56,.92),rgba(18,25,41,.92)); border:1px solid __LINE__; }
@@ -397,8 +397,6 @@ _sub_mom = f"{_mes(mom['mes_atual'])} vs {_mes(mom['mes_anterior'])}"
 diaria = dados.serie_diaria(f)
 
 cabecalho(inicio, fim, origem)
-margem_ok = pd.notna(ind["margem_pct"])
-
 st.markdown(
     "<div class='vt-kpis'>"
     + card_kpi(
@@ -419,13 +417,6 @@ st.markdown(
     + card_kpi("Pedidos", inteiro(ind["pedidos"]), "Pedidos distintos no período", cor=BLUE)
     + card_kpi("Ticket médio", brl(ind["ticket_medio"]), "Líquido ÷ pedidos", cor=AMBER,
                ajuda="Faturamento líquido ÷ pedidos distintos.")
-    + card_kpi(
-        "Margem bruta est.", brl(ind["margem_bruta"]),
-        "" if margem_ok else "Sem custo informado no recorte", cor=ROSE,
-        chip=f"{pct(ind['margem_pct'])} de margem" if margem_ok else "",
-        chip_classe="vt-chip-ok" if (not margem_ok or ind["margem_pct"] >= 0) else "vt-chip-bad",
-        ajuda="Receita de produtos menos custo, só nas linhas com custo informado (hoje, só WooCommerce).",
-    )
     + "</div>",
     unsafe_allow_html=True,
 )
