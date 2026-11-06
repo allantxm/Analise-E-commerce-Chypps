@@ -81,7 +81,7 @@ section[data-testid="stSidebar"] hr { border-color:__LINE__; }
 .vt-chip { padding:6px 12px; border-radius:999px; font-size:.8rem; font-weight:600; color:__TEXT__;
     background:rgba(255,255,255,.05); border:1px solid __LINE__; }
 .vt-chip-soft { color:__MUTED__; font-weight:500; }
-.vt-kpis { display:grid; grid-template-columns:1.7fr 1fr 1fr 1fr; gap:14px; }
+.vt-kpis { display:grid; grid-template-columns:1.6fr 1.2fr 1fr 1fr 1fr; gap:14px; }
 .vt-kpi { position:relative; display:flex; flex-direction:column; gap:6px; overflow:hidden;
     min-height:128px; padding:18px 20px 16px; border-radius:18px;
     background:linear-gradient(160deg,rgba(26,35,56,.92),rgba(18,25,41,.92)); border:1px solid __LINE__; }
@@ -92,10 +92,11 @@ section[data-testid="stSidebar"] hr { border-color:__LINE__; }
     line-height:1.15; color:__TEXT__; overflow-wrap:anywhere; }
 .vt-kpi-hero .vt-kpi-value { font-size:clamp(1.8rem,2.6vw,2.5rem); }
 .vt-kpi-sub { font-size:.8rem; color:__MUTED__; }
-.vt-chip-ok, .vt-chip-bad { display:inline-block; padding:2px 9px; border-radius:999px;
+.vt-chip-ok, .vt-chip-bad, .vt-chip-neutral { display:inline-block; padding:2px 9px; border-radius:999px;
     font-size:.78rem; font-weight:700; }
 .vt-chip-ok { background:rgba(56,214,196,.14); color:__TEAL__; }
 .vt-chip-bad { background:rgba(255,107,139,.14); color:__ROSE__; }
+.vt-chip-neutral { background:rgba(255,255,255,.08); color:__MUTED__; }
 .vt-spark { display:block; width:100%; height:56px; margin-top:auto; }
 .has-help { text-decoration:underline dotted rgba(255,255,255,.35); text-underline-offset:3px; cursor:help; }
 .vt-strip { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:1px; overflow:hidden;
@@ -342,9 +343,12 @@ if isinstance(selecao, (tuple, list)):
 else:
     inicio = fim = selecao
 
-todas_situacoes = sorted(df["Situação"].dropna().unique().tolist())
-padrao_situacoes = [s for s in todas_situacoes if s.casefold() != "cancelado"] or todas_situacoes
-situacoes = st.sidebar.multiselect("Situação do pedido", todas_situacoes, default=padrao_situacoes)
+todas_situacoes = [g for g in dados.GRUPOS_SITUACAO if g in set(df["Grupo de situação"])]
+situacoes = st.sidebar.multiselect(
+    "Situação do pedido", todas_situacoes, default=todas_situacoes,
+    help="Agrupa os textos de status das plataformas. Por padrão tudo entra, como no Power BI; "
+         "desmarque Cancelado e Devolvido/reembolsado para ver só as vendas efetivas.",
+)
 
 lojas = sorted(df["Loja virtual"].dropna().unique().tolist())
 canais = st.sidebar.multiselect("Canal de venda", lojas, default=lojas)
@@ -377,6 +381,19 @@ if f.empty:
 
 ind = dados.indicadores(f)
 taxa_canc = dados.taxa_cancelamento(f_todas)
+# Mesma lógica do DAX (ALLEXCEPT): só canal e situação valem; período, UF e produto são ignorados.
+mom = dados.metricas_mom(df, canais=canais, situacoes=situacoes)
+
+
+def _mes(aaaa_mm):
+    return f"{aaaa_mm[5:7]}/{aaaa_mm[:4]}" if aaaa_mm else "—"
+
+
+def _classe_mom(v):
+    return "vt-chip-ok" if v > 0 else ("vt-chip-bad" if v < 0 else "vt-chip-neutral")
+
+
+_sub_mom = f"{_mes(mom['mes_atual'])} vs {_mes(mom['mes_anterior'])}"
 diaria = dados.serie_diaria(f)
 
 cabecalho(inicio, fim, origem)
@@ -385,19 +402,29 @@ margem_ok = pd.notna(ind["margem_pct"])
 st.markdown(
     "<div class='vt-kpis'>"
     + card_kpi(
-        "Faturamento", brl(ind["faturamento"]), "Média móvel de 7 dias no período",
+        "Faturamento líquido", brl(ind["faturamento_liquido"]),
+        f"Mês atual {brl(mom['liquido_atual'])} · anterior {brl(mom['liquido_anterior'])}",
         cor=PURPLE, destaque=True,
+        chip=f"{mom['rotulo_liquido']} MoM", chip_classe=_classe_mom(mom["var_liquido"]),
+        ajuda="Soma de Total (BRL). O % MoM compara o mês da última venda com o mês anterior "
+              "(" + _sub_mom + "), respeitando só canal e situação.",
         extra=sparkline(diaria["Média móvel 7 dias"], PURPLE) if not diaria.empty else "",
     )
+    + card_kpi(
+        "Faturamento bruto", brl(ind["faturamento_bruto"]),
+        f"Mês atual {brl(mom['bruto_atual'])} · anterior {brl(mom['bruto_anterior'])}",
+        cor=TEAL, chip=f"{mom['rotulo_bruto']} MoM", chip_classe=_classe_mom(mom["var_bruto"]),
+        ajuda="Soma de Receita por produtos (BRL), antes de frete, descontos e reembolsos.",
+    )
     + card_kpi("Pedidos", inteiro(ind["pedidos"]), "Pedidos distintos no período", cor=BLUE)
-    + card_kpi("Ticket médio", brl(ind["ticket_medio"]), "Faturamento ÷ pedidos", cor=AMBER,
-               ajuda="Faturamento ÷ pedidos distintos.")
+    + card_kpi("Ticket médio", brl(ind["ticket_medio"]), "Líquido ÷ pedidos", cor=AMBER,
+               ajuda="Faturamento líquido ÷ pedidos distintos.")
     + card_kpi(
         "Margem bruta est.", brl(ind["margem_bruta"]),
-        "" if margem_ok else "Sem custo informado no recorte", cor=TEAL,
+        "" if margem_ok else "Sem custo informado no recorte", cor=ROSE,
         chip=f"{pct(ind['margem_pct'])} de margem" if margem_ok else "",
         chip_classe="vt-chip-ok" if (not margem_ok or ind["margem_pct"] >= 0) else "vt-chip-bad",
-        ajuda="Só considera linhas com custo informado.",
+        ajuda="Receita de produtos menos custo, só nas linhas com custo informado (hoje, só WooCommerce).",
     )
     + "</div>",
     unsafe_allow_html=True,
@@ -407,17 +434,18 @@ st.markdown(
     faixa_kpis([
         ("Itens vendidos", inteiro(ind["itens"]), "", ""),
         ("Itens por pedido", f"{ind['itens_por_pedido']:.1f}".replace(".", ","), "", ""),
-        ("Taxa de cancelamento", pct(taxa_canc),
-         "Pedidos cancelados ÷ pedidos totais, nos demais filtros.", ""),
+        ("Cancelados e devolvidos", pct(taxa_canc),
+         "Pedidos cancelados ou devolvidos ÷ pedidos totais, nos demais filtros.", ""),
         ("Frete (por pedido)", brl(ind["frete_total"]),
          "Frete é do pedido: conta uma vez por pedido, não por item.", ""),
-        ("Pedidos com frete zero", pct(ind["pct_frete_gratis"]), "", ""),
+        ("Frete zero (c/ frete informado)", pct(ind["pct_frete_gratis"]),
+         "Parte dos pedidos com frete informado cujo frete é zero.", ""),
         ("Descontos (por pedido)", brl(ind["desconto_total"]), "", ""),
         ("NF-e pendentes", inteiro(ind["nfe_pendentes"]),
          "Pedidos com nota fiscal em situação 'Pendente'.",
          "warn" if ind["nfe_pendentes"] else ""),
         ("Cobertura de custo", pct(ind["cobertura_custo"], 0),
-         "Parcela do faturamento com preço de custo informado.", ""),
+         "Parcela da receita de produtos com preço de custo informado.", ""),
     ]),
     unsafe_allow_html=True,
 )
@@ -436,6 +464,10 @@ aba_geral, aba_produtos, aba_canais, aba_geo, aba_pedidos, aba_dados = st.tabs(
 )
 
 with aba_geral:
+    if meta > 0:
+        atingido = ind["faturamento_liquido"] / meta
+        st.progress(min(max(atingido, 0.0), 1.0))
+        st.caption(f"Meta do período: {brl(meta)} · atingido {pct(atingido)} do faturamento líquido.")
     esq, dir_ = st.columns([1.3, 1])
     with esq:
         st.subheader("Evolução diária")
@@ -455,14 +487,24 @@ with aba_geral:
         grafico(fig, 360)
 
     with dir_:
-        st.subheader("Faturamento por canal")
+        st.subheader("Faturamento líquido por canal")
         canal = f.groupby("Loja virtual", as_index=False).agg(Faturamento=("Preço Total", "sum"))
         fig = px.pie(canal, names="Loja virtual", values="Faturamento", hole=0.64,
                      color_discrete_sequence=PALETA)
         fig.update_traces(textposition="inside", textinfo="percent", insidetextorientation="horizontal")
         fig.update_layout(legend=dict(orientation="h", x=0.5, xanchor="center", y=-0.02))
-        centro_rosca(fig, brl(ind["faturamento"]), "faturamento")
+        centro_rosca(fig, brl(ind["faturamento_liquido"]), "líquido")
         grafico(fig, 360)
+
+    st.subheader("Mês a mês")
+    mensal = dados.resumo_mensal(f)
+    tabela(
+        mensal,
+        {"Faturamento bruto": brl, "Faturamento líquido": brl, "Pedidos": inteiro,
+         "MoM líquido": "{:+.1%}", "MoM bruto": "{:+.1%}"},
+    )
+    st.caption("A tabela segue todos os filtros da barra lateral. Os cartões do topo (MoM) ignoram "
+               "período, estado e produto, como a medida do Power BI.")
 
 with aba_produtos:
     abc = dados.curva_abc(f)
@@ -600,6 +642,18 @@ with aba_pedidos:
         grafico(fig, 330)
 
 with aba_dados:
+    q = dados.qualidade(df)
+    with st.expander("Qualidade da base (alertas, nada é removido)"):
+        st.markdown(
+            f"- **{inteiro(q['linhas'])}** linhas e **{inteiro(q['pedidos'])}** pedidos distintos.\n"
+            f"- **{inteiro(q['linhas_sem_custo'])}** linhas sem preço de custo (a margem só cobre as demais).\n"
+            f"- **{inteiro(q['pedidos_total_repetido'])}** pedidos com várias linhas repetem o mesmo total em "
+            "cada linha. A soma (igual ao DAX) conta esse total mais de uma vez.\n"
+            f"- **{inteiro(q['linhas_identicas'])}** linhas idênticas a outra (possível duplicidade).\n"
+            f"- **{inteiro(q['uf_nao_informada'])}** linhas sem UF.\n"
+            "- Os números de venda do Mercado Livre perdem precisão no Excel. Os pedidos desses canais "
+            "são reconstruídos por canal + data/hora + comprador."
+        )
     st.subheader("Registros filtrados")
     colunas = [col for col in dados.COLUNAS_OBRIGATORIAS if col in f.columns]
     saida = f[colunas].copy()
